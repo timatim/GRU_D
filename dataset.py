@@ -5,6 +5,8 @@ import torch
 import numpy as np
 import pandas as pd
 from torch.utils.data import Dataset
+from torch.nn.utils.rnn import pack_padded_sequence
+from torch.autograd import Variable
 import utils
 
 
@@ -104,12 +106,14 @@ class PhysioNET(Dataset):
         return (self.x[real_key], self.delta[real_key], self.m[real_key], self.x_obs[real_key]), self.labels[real_key]
 
     # TODO: implement batch collate by padding with 0s
-    def collate_batch(self, batch):
+    def collate_batch(batch):
         # find maximum sequence length
         max_seq_len = max([len(b[0][0]) for b in batch])
         num_features = batch[0][0][0].shape[1]
 
         matrices = [list() for _ in range(4)]
+
+        lengths = torch.LongTensor(np.array([len(b[0][0]) for b in batch]))
 
         # pad to max_seq_len in batch with zeros
         for b in batch:
@@ -121,7 +125,13 @@ class PhysioNET(Dataset):
                                      torch.FloatTensor(b[0][i]),
                                      torch.FloatTensor(max_seq_len-sample_len, num_features).zero_()
                                     ]))
-        return [torch.stack(m) for m in matrices], torch.LongTensor([int(b[1]) for b in batch])
+        packed_matrices = []
+
+        for i in range(4):
+            packed_matrices.append(torch.stack(matrices[i]))
+        packed_matrices.append(lengths)
+
+        return packed_matrices, torch.LongTensor([int(b[1]) for b in batch])
 
 if __name__ == "__main__":
     df = pd.read_csv('./all_data.csv')
