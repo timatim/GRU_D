@@ -12,7 +12,7 @@ class GRUD(nn.Module):
         self.hidden_size = hidden_size
         self.output_size = output_size
         self.batch_first = batch_first
-        #         self.feature_means = Variable(torch.FloatTensor(feature_means), requires_grad=False)
+
         # initialize weights and biases
         self.W_r = nn.Parameter(torch.FloatTensor(input_size, hidden_size).normal_(0, 0.02))
         self.U_r = nn.Parameter(torch.FloatTensor(hidden_size, hidden_size).normal_(0, 0.02))
@@ -69,10 +69,10 @@ class GRUD(nn.Module):
         zeroes = Variable(torch.zeros(decay_h.size()))
         if decay_h.is_cuda:
             zeroes = zeroes.cuda()
-        gamma_x_h = torch.exp(-torch.max(zeroes, decay_h))
+        gamma_h_t = torch.exp(-torch.max(zeroes, decay_h))
 
         # replace missing values
-        x_replace = decay_x * x_forward + (1 - decay_x) * 0.001
+        x_replace = gamma_x_t * x_forward + (1 - gamma_x_t) * 0.001
         x[m.byte()] = x_replace[m.byte()]
 
         # dropout masks, one for each batch
@@ -92,7 +92,7 @@ class GRUD(nn.Module):
             update_range = Variable(torch.LongTensor(list(range(batch_sizes[t]))))
             if decay_h.is_cuda:
                 update_range = update_range.cuda()
-            h_t = h_t.clone().index_copy_(0, update_range, gamma_x_h[:batch_sizes[t], t, :] * h_t[:batch_sizes[t]])
+            h_t = h_t.clone().index_copy_(0, update_range, gamma_h_t[:batch_sizes[t], t, :] * h_t[:batch_sizes[t]])
 
             z_t = F.sigmoid(torch.matmul(x[:batch_sizes[t], t, :], self.W_z) + torch.matmul(h_t[:batch_sizes[t]],
                                                                                             self.U_z) + torch.matmul(
@@ -100,11 +100,10 @@ class GRUD(nn.Module):
             r_t = F.sigmoid(torch.matmul(x[:batch_sizes[t], t, :], self.W_r) + torch.matmul(h_t[:batch_sizes[t]],
                                                                                             self.U_r) + torch.matmul(
                 1 - m[:batch_sizes[t], t, :], self.V_r) + self.b_r)
-            h_tilde_t = F.tanh(
-                torch.matmul(x[:batch_sizes[t], t, :], self.W * W_dropout) + torch.matmul(h_t[:batch_sizes[t]] * r_t,
-                                                                                          self.U * U_dropout) + torch.matmul(
-                    1 - m[:batch_sizes[t], t, :], self.V * V_dropout) + self.b)
-            h_t = h_t.clone()
+            # h_tilde_t = F.tanh(torch.matmul(x[:batch_sizes[t], t, :], self.W) + torch.matmul(h_t[:batch_sizes[t]] * r_t,
+            #                                                                                  self.U) + torch.matmul(
+            #     1 - m[:batch_sizes[t], t, :], self.V) + self.b)
+            h_tilde_t = F.tanh(torch.matmul(x[:batch_sizes[t], t, :], self.W*W_dropout) + torch.matmul(h_t[:batch_sizes[t]]*r_t, self.U*U_dropout) + torch.matmul(1-m[:batch_sizes[t], t, :], self.V*V_dropout) + self.b)
             h_t = h_t.clone().index_copy_(0, update_range, (1 - z_t) * h_t[:batch_sizes[t]] + z_t * h_tilde_t)
 
         if batch_size > 1:
@@ -113,3 +112,4 @@ class GRUD(nn.Module):
         output = F.log_softmax(self.decoder(self.decoder_dropout(h_t)), dim=-1)
 
         return output, h_t
+
